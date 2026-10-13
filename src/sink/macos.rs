@@ -587,15 +587,21 @@ impl Worker {
     }
 
     fn prime(&mut self, anchor: u64) -> Result<()> {
-        let deadline = Instant::now() + PREROLL_TIMEOUT;
-        let mut desired = LOOKAHEAD;
+        let started = Instant::now();
+        let deadline = started + PREROLL_TIMEOUT;
         loop {
             self.audio.check()?;
-            self.fill(anchor, desired, true)?;
+            // The clock is stopped, so pacing this fill only delays startup.
+            // Enqueue the bounded preroll immediately; wait only if the native
+            // renderer still needs time to become ready or accept more PCM.
+            self.fill(anchor, MAX_LOOKAHEAD, true)?;
             let queued = self.queue.next.saturating_sub(anchor);
             match preroll(queued, self.audio.ready(), Instant::now() >= deadline) {
                 Preroll::Ready => {
-                    log::debug!("native audio primed: anchor={anchor}, frames={queued}");
+                    log::debug!(
+                        "native audio primed: anchor={anchor}, frames={queued}, elapsed_ms={}",
+                        started.elapsed().as_millis()
+                    );
                     return Ok(());
                 }
                 Preroll::TimedOut => {
@@ -607,7 +613,6 @@ impl Worker {
                 }
                 Preroll::Wait => {
                     thread::sleep(TICK);
-                    desired = (desired + BLOCK).min(MAX_LOOKAHEAD);
                 }
             }
         }
@@ -1214,10 +1219,14 @@ mod tests {
             let anchor = 17 * u64::from(SAMPLE_RATE);
             worker.audio.reset(anchor);
             worker.queue.next = anchor;
+            // The stopped renderer accepts a full, bounded preroll in one
+            // fill. It need not be fed at the playback clock's 20 ms cadence.
+            worker.fill(anchor, MAX_LOOKAHEAD, true).unwrap();
+            assert_eq!(worker.queue.next - anchor, MAX_LOOKAHEAD);
             worker.prime(anchor).unwrap();
             assert!(worker.audio.ready());
             assert!(worker.peak > 0.0);
-            assert!((LOOKAHEAD..=MAX_LOOKAHEAD).contains(&(worker.queue.next - anchor)));
+            assert_eq!(worker.queue.next - anchor, MAX_LOOKAHEAD);
             assert_eq!(worker.queue.pending.front().unwrap().start, anchor);
             // Read back an actual owned Core Media buffer made from mixer PCM.
             let chunk = worker.queue.pending.back().unwrap();

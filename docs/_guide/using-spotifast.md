@@ -23,6 +23,7 @@ output, which does not enable these spatialization controls. Availability of
 the controls depends on the selected output and macOS.
 
 Native playback fills its audio buffer before starting the playback clock.
+It fills this startup buffer immediately, waiting only for macOS readiness.
 It targets 250 ms of queued audio during playback, with up to 500 ms plus one
 stereo frame for startup and renderer replacement. If native startup cannot become ready
 within two seconds, Spotifast logs the reason and uses the standard output.
