@@ -22,6 +22,17 @@ output cannot initialize, Spotifast logs the reason and uses the standard
 output, which does not enable these spatialization controls. Availability of
 the controls depends on the selected output and macOS.
 
+Native playback fills its audio buffer before starting the playback clock.
+It targets 250 ms of queued audio during playback, with up to 500 ms plus one
+stereo frame for startup and recovery. If native startup cannot become ready
+within two seconds, Spotifast logs the reason and uses the standard output.
+Queued audio can delay volume changes and fades; pausing still stops audio work.
+When using the default output, macOS handles device changes without Spotifast
+replacing the renderer or restarting its spatialization session.
+On macOS, `cargo run` packages and launches the regular client as a development
+`.app` under the build directory. A real bundle lets macOS associate its per-app
+audio controls with Spotifast. Cargo tests still run directly.
+
 ## Middle-click autoscroll
 
 On Windows, since 0.8.0, and on Linux once turned on, middle-click a scrolling

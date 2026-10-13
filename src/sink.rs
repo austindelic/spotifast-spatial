@@ -529,6 +529,7 @@ impl Output {
         // The first sound has silence to come up from instead of a hard edge.
         self.transport = Envelope::closed(sample_rate, TRANSPORT_FADE);
         self.queued = Queued::new();
+        self.device.set_queue(Arc::clone(&self.queued));
         self.fed = false;
         self.last_write = None;
     }
@@ -562,6 +563,15 @@ enum DeviceOutput {
 }
 
 impl DeviceOutput {
+    fn set_queue(&self, queued: Arc<Queued>) {
+        #[cfg(target_os = "macos")]
+        if let Self::Apple(device) = self {
+            device.set_queue(queued);
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = queued;
+    }
+
     fn resume(&mut self) {
         match self {
             Self::Standard(device) => device.resume(),
@@ -839,7 +849,11 @@ impl Sink for RodioSink {
             // been decoded since.
             output.transport.fade_out_over(output.queued.frames());
             let deadline = Instant::now() + DRAIN_TIMEOUT;
-            while !output.sink.empty() && !output.failed() && Instant::now() < deadline {
+            while !output.sink.empty()
+                && output.queued.frames() > 0
+                && !output.failed()
+                && Instant::now() < deadline
+            {
                 thread::sleep(Duration::from_millis(10));
             }
             output.sink.pause();
@@ -879,6 +893,7 @@ impl Sink for RodioSink {
             output.sink = sink;
             output.envelope = envelope;
             output.queued = Queued::new();
+            output.device.set_queue(Arc::clone(&output.queued));
             output.resampler =
                 Resampler::new(SAMPLE_RATE, output.sample_rate, NUM_CHANNELS as usize);
             output.fed = false;
@@ -1313,11 +1328,15 @@ mod tests {
         assert!(!output.device.is_paused());
         assert!(!output.sink.is_paused());
         let deadline = Instant::now() + DRAIN_TIMEOUT;
-        while !output.sink.empty() && Instant::now() < deadline {
+        while output.queued.frames() > 0 && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(10));
         }
-        assert!(
-            output.sink.empty(),
+        // The native output stops pulling at the last real frame. rodio
+        // retires that final source on a later read, so its source count
+        // need not be zero even though every PCM frame was consumed.
+        assert_eq!(
+            output.queued.frames(),
+            0,
             "the first silent packet must actually play"
         );
         assert!(sink.stop().is_ok());

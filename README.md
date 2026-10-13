@@ -145,6 +145,8 @@ On Apple-silicon Macs running macOS 12.3 or later, local playback uses Apple's
 audio renderer and permits stereo spatialization with compatible AirPods.
 Choose Off, Fixed, or Head Tracked in the macOS AirPods controls. This path is
 also enabled when running `cargo run`; no separate diagnostic app is needed.
+Native output primes a bounded buffer before playback and falls back to the
+standard output if it cannot become ready within two seconds.
 
 ## More native apps
 
