@@ -153,6 +153,17 @@ sudo dnf install alsa-lib-devel pulseaudio-libs-devel libxkbcommon-devel \
   wayland-devel cmake clang clang-devel
 ```
 
+On macOS, install the Xcode Command Line Tools (`xcode-select --install`).
+When using LLVM installed outside Xcode, set the SDK path so MilkDrop's binding
+generator can find the system headers:
+
+```bash
+export SDKROOT="$(xcrun --show-sdk-path)"
+```
+
+The checkout's mise configuration sets this automatically unless you have
+already selected an SDK.
+
 On Windows, libprojectM is built with Visual Studio 2022, CMake, LLVM, and
 vcpkg (`vcpkg install glew:x64-windows-static`, with
 `VCPKG_INSTALLATION_ROOT` pointing at the vcpkg folder).
