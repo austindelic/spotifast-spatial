@@ -403,7 +403,7 @@ impl Worker {
                 self.flushes += 1;
                 let frame = from.unwrap_or_else(|| self.audio.frame().unwrap_or(self.last_frame));
                 log::debug!("native audio automatic flush: generation={generation}, frame={frame}");
-                if let Err(error) = self.replay(frame) {
+                if let Err(error) = self.refill_after_flush() {
                     self.recover(error);
                 }
             }
@@ -457,6 +457,26 @@ impl Worker {
             self.start()?;
         }
         Ok(())
+    }
+
+    fn refill_after_flush(&mut self) -> Result<()> {
+        self.generation = self.generation.wrapping_add(1);
+        self.audio.observe(self.events.clone(), self.generation);
+        // Apple's automatic flush leaves the timebase running. Clear any
+        // buffers enqueued while its notification was in flight, then refill
+        // at the current playhead without stopping or reprerolling. A rate
+        // reset here temporarily tears down the spatialization session.
+        self.audio.flush();
+        if self.running {
+            let frame = self.audio.frame()?;
+            self.queue.trim(frame);
+            for chunk in &self.queue.pending {
+                self.audio.enqueue(chunk)?;
+            }
+            self.last_frame = frame;
+            self.advanced = Instant::now();
+        }
+        self.audio.check()
     }
 
     fn reopen(&mut self) -> Result<()> {
@@ -789,11 +809,16 @@ impl Native {
 
     fn reset(&self, frame: u64) {
         self.stop();
+        self.flush();
         // SAFETY: Stop, flush, and reset cannot race with an enqueue.
         unsafe {
-            self.renderer.flush();
             self.synchronizer.setRate_time(0.0, frame_time(frame));
         }
+    }
+
+    fn flush(&self) {
+        // SAFETY: Flush and enqueue are serialized on the owning worker.
+        unsafe { self.renderer.flush() };
     }
 }
 
@@ -1098,8 +1123,34 @@ mod tests {
                 thread::sleep(Duration::from_millis(10));
             }
             assert!(worker.audio.frame().unwrap() > 0);
+            let before = worker.audio.frame().unwrap();
+            let next = worker.queue.next;
+            let generation = worker.generation;
+            worker.command(Command::Route {
+                generation,
+                from: Some(0),
+            });
+            assert_eq!(worker.generation, generation + 1);
+            assert!(
+                worker.audio.frame().unwrap() >= before,
+                "a mode switch never rewinds the clock"
+            );
+            assert_eq!(
+                worker.queue.next, next,
+                "a mode switch reuses queued PCM without preroll padding"
+            );
+            assert_eq!(unsafe { worker.audio.synchronizer.rate() }, 1.0);
+            thread::sleep(Duration::from_millis(30));
+            assert!(worker.audio.frame().unwrap() > before);
             let (reply, _received) = mpsc::sync_channel(1);
             worker.command(Command::Pause(Instant::now(), reply));
+            assert!(!worker.running);
+            assert!(worker.queue.pending.is_empty());
+            assert_eq!(unsafe { worker.audio.synchronizer.rate() }, 0.0);
+            worker.command(Command::Route {
+                generation: worker.generation,
+                from: Some(0),
+            });
             assert!(!worker.running);
             assert!(worker.queue.pending.is_empty());
             assert_eq!(unsafe { worker.audio.synchronizer.rate() }, 0.0);
