@@ -141,6 +141,10 @@ Translations live in `assets/i18n/`; see
 [Translating Spotifast](docs/_reference/translating.md). Release packaging
 is described in [PACKAGING.md](PACKAGING.md).
 
+The [macOS spatial audio probe](examples/spatial-audio-probe/README.md) tests
+native AirPods controls with diagnostic tones. It is separate from production
+playback and requires a hardware listening test before integration.
+
 ## More native apps
 
 **Want WhatsApp just as fast and native?** [ZapFast](https://zapfast.rocks)
