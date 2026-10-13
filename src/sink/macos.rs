@@ -275,6 +275,7 @@ struct Worker {
     shared: Arc<Shared>,
     queue: Queue,
     source_queue: Option<Arc<Queued>>,
+    refill_deadline: Option<Instant>,
     generation: u64,
     running: bool,
     recovered: bool,
@@ -303,6 +304,7 @@ impl Worker {
             shared,
             queue: Queue::default(),
             source_queue: None,
+            refill_deadline: None,
             generation: 0,
             running: false,
             recovered: false,
@@ -424,6 +426,7 @@ impl Worker {
     }
 
     fn clear(&mut self) {
+        self.refill_deadline = None;
         self.generation = self.generation.wrapping_add(1);
         self.audio.observe(self.events.clone(), self.generation);
         self.audio.reset(0);
@@ -444,6 +447,7 @@ impl Worker {
     }
 
     fn replay(&mut self, frame: u64) -> Result<()> {
+        self.refill_deadline = None;
         self.queue.trim(frame);
         self.generation = self.generation.wrapping_add(1);
         self.audio.observe(self.events.clone(), self.generation);
@@ -468,6 +472,10 @@ impl Worker {
         // reset here temporarily tears down the spatialization session.
         self.audio.flush();
         if self.running {
+            // A spatial-mode change can rebuild the underlying audio queue.
+            // Restore the bounded startup-sized reservoir while it settles,
+            // using real PCM and leaving the playback clock running.
+            self.refill_deadline = Some(Instant::now() + PREROLL_TIMEOUT);
             let frame = self.audio.frame()?;
             self.queue.trim(frame);
             for chunk in &self.queue.pending {
@@ -519,9 +527,19 @@ impl Worker {
         }
         self.last_frame = frame;
         self.queue.trim(frame);
-        self.fill(frame, LOOKAHEAD, false)?;
+        let lookahead = self.lookahead(Instant::now());
+        self.fill(frame, lookahead, false)?;
         self.diagnose(frame);
         Ok(())
+    }
+
+    fn lookahead(&mut self, now: Instant) -> u64 {
+        if self.refill_deadline.is_some_and(|deadline| now < deadline) {
+            MAX_LOOKAHEAD
+        } else {
+            self.refill_deadline = None;
+            LOOKAHEAD
+        }
     }
 
     fn fill(&mut self, frame: u64, lookahead: u64, priming: bool) -> Result<()> {
@@ -1131,6 +1149,10 @@ mod tests {
                 from: Some(0),
             });
             assert_eq!(worker.generation, generation + 1);
+            let refill_deadline = worker.refill_deadline.unwrap();
+            assert_eq!(worker.lookahead(refill_deadline - TICK), MAX_LOOKAHEAD);
+            assert_eq!(worker.lookahead(refill_deadline), LOOKAHEAD);
+            assert!(worker.refill_deadline.is_none());
             assert!(
                 worker.audio.frame().unwrap() >= before,
                 "a mode switch never rewinds the clock"
@@ -1146,6 +1168,7 @@ mod tests {
             worker.command(Command::Pause(Instant::now(), reply));
             assert!(!worker.running);
             assert!(worker.queue.pending.is_empty());
+            assert!(worker.refill_deadline.is_none());
             assert_eq!(unsafe { worker.audio.synchronizer.rate() }, 0.0);
             worker.command(Command::Route {
                 generation: worker.generation,
@@ -1153,6 +1176,7 @@ mod tests {
             });
             assert!(!worker.running);
             assert!(worker.queue.pending.is_empty());
+            assert!(worker.refill_deadline.is_none());
             assert_eq!(unsafe { worker.audio.synchronizer.rate() }, 0.0);
             // The source is None, so this test renders only silence.
         });

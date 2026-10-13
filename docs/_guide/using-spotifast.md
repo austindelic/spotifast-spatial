@@ -30,7 +30,8 @@ Queued audio can delay volume changes and fades; pausing still stops audio work.
 When using the default output, macOS handles device changes without Spotifast
 replacing the renderer or restarting its spatialization session.
 Spatial-mode switches refill audio at the current playback position without
-stopping the clock or repeating startup buffering.
+stopping the clock. For two seconds after a switch, the queue can grow to the
+same bounded startup size using decoded audio, then returns to its 250 ms target.
 On macOS, `cargo run` packages and launches the regular client as a development
 `.app` under the build directory. A real bundle lets macOS associate its per-app
 audio controls with Spotifast. Cargo tests still run directly.
