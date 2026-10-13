@@ -5,6 +5,23 @@ description: Play music, arrange playlists, find lyrics, and make Spotifast your
 nav_order: 3
 ---
 
+## AirPods spatialization on macOS
+
+On an Apple-silicon Mac with macOS 12.3 or later, local playback permits Apple's
+stereo spatialization. Connect compatible AirPods, play a song on this computer,
+and use the AirPods controls in the macOS menu bar or Control Center to choose
+**Off**, **Fixed**, or **Head Tracked**. There is no additional Spotifast setting.
+
+Spotify still supplies stereo audio. This applies Apple's spatialization to
+that stereo signal; it does not add Dolby Atmos or lossless streams. The EQ
+continues to shape the sound, and the visualizers remain independent of volume.
+Playback on a remote Spotify Connect device uses that device's capabilities.
+
+Intel Macs and older macOS versions use the standard audio output. If Apple's
+output cannot initialize, Spotifast logs the reason and uses the standard
+output, which does not enable these spatialization controls. Availability of
+the controls depends on the selected output and macOS.
+
 ## Middle-click autoscroll
 
 On Windows, since 0.8.0, and on Linux once turned on, middle-click a scrolling

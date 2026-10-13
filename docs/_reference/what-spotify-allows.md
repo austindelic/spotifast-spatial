@@ -95,6 +95,11 @@ librespot provides:
 
 Spotify Premium is required. librespot cannot play audio with a free account.
 
+On supported Apple-silicon Macs, Spotifast passes the decoded stereo audio to
+AVFoundation so macOS can spatialize it for compatible AirPods. This is local
+output processing, not a Spotify spatial-audio format. See
+[AirPods spatialization](/using-spotifast/#airpods-spatialization-on-macos).
+
 Spotifast uses a small librespot fork. Its patches add queue controls,
 normalisation data for the visualisers, and an event for rejected audio keys.
 They are listed in `Cargo.toml`. Larger changes go upstream first.

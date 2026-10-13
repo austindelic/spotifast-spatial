@@ -141,9 +141,10 @@ Translations live in `assets/i18n/`; see
 [Translating Spotifast](docs/_reference/translating.md). Release packaging
 is described in [PACKAGING.md](PACKAGING.md).
 
-The [macOS spatial audio probe](examples/spatial-audio-probe/README.md) tests
-native AirPods controls with diagnostic tones. It is separate from production
-playback and requires a hardware listening test before integration.
+On Apple-silicon Macs running macOS 12.3 or later, local playback uses Apple's
+audio renderer and permits stereo spatialization with compatible AirPods.
+Choose Off, Fixed, or Head Tracked in the macOS AirPods controls. This path is
+also enabled when running `cargo run`; no separate diagnostic app is needed.
 
 ## More native apps
 

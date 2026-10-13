@@ -176,7 +176,16 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 # NSAppleEventManager and NSAppleEventDescriptor carry the Spotify links
 # macOS hands an app registered for the scheme (src/mac_links.rs), and
 # NSRunLoop has the delayed perform the title bar uses (src/window.rs).
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString", "NSThread", "NSDictionary", "NSAttributedString", "NSData"] }
+# Notifications report native audio route flushes to the audio worker.
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString", "NSThread", "NSDictionary", "NSAttributedString", "NSData", "NSProcessInfo", "NSNotification", "NSOperation", "NSValue", "block2"] }
+# AVFoundation permits macOS/AirPods stereo spatialization through the system
+# controls. Core Media owns the PCM buffers; Core Audio resolves output UIDs.
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "AVSampleBufferAudioRenderer", "AVSampleBufferRenderSynchronizer", "AVQueuedSampleBufferRendering", "AVAudioProcessingSettings", "objc2-core-media"] }
+objc2-core-media = { version = "0.3", default-features = false, features = ["std", "CMBlockBuffer", "CMFormatDescription", "CMSampleBuffer", "CMTime", "objc2-core-audio-types"] }
+objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware"] }
+objc2-core-audio-types = { version = "0.3", default-features = false, features = ["std", "CoreAudioBaseTypes"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFBase", "CFString"] }
+block2 = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store = { version = "1.1", default-features = false }
