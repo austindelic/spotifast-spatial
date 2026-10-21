@@ -50,7 +50,9 @@
     <control>keyboard</control>
   </supports>
   <releases>
-    <release version="0.14.1-spatial.1" date="2026-10-21" type="development" />
+    <release version="0.14.1-spatial.1" date="2026-10-21" type="development">
+      <url>https://github.com/austindelic/spotifast-spatial/releases/tag/v0.14.1-spatial.1</url>
+    </release>
     <release version="0.14.1" date="2026-10-20">
       <url>https://github.com/crmne/spotifast/releases/tag/v0.14.1</url>
     </release>
