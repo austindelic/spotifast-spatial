@@ -10,7 +10,7 @@ pub use fastframe_update::{
     CHECK_INTERVAL, DownloadState, Installation, Kind, Prepared, Release, Source, Unsupported,
     Updater,
 };
-use fastframe_update::{MacConfig, ReqwestTransport, UpdateConfig};
+use fastframe_update::{MacConfig, MacTarget, Prereleases, ReqwestTransport, UpdateConfig};
 
 pub const CONFIG: UpdateConfig = UpdateConfig {
     macos: MacConfig {
@@ -18,15 +18,14 @@ pub const CONFIG: UpdateConfig = UpdateConfig {
         executable_names: &["Spotifast"],
         legacy_bundle_names: &[],
     },
-    // Releases publish an Ed25519 signature for checksums.txt. Require it
-    // before downloading an update, using the release workflow's public key.
-    publisher_key: Some(include_str!("../assets/update-public-key.hex")),
-    // Releases build their AppImages before publishing, so the signed
-    // checksums.txt lists them (#737): an AppImage replaces itself with the
-    // next one.
-    appimage: true,
+    // This fork publishes unsigned checksums; the upstream signing key
+    // cannot authenticate its releases. Keep the existing preview policy.
+    publisher_key: None,
+    // Preview builds stay on this fork and use its Apple Silicon artifacts.
+    prereleases: Prereleases::WhenRunningPrerelease,
+    mac_target: MacTarget::Arm64Only,
     ..UpdateConfig::new(
-        "crmne/spotifast",
+        "austindelic/spotifast-spatial",
         "Spotifast",
         "spotifast",
         env!("CARGO_PKG_VERSION"),
@@ -47,22 +46,23 @@ mod tests {
     fn update_config_is_valid() {
         CONFIG.validate().unwrap();
         assert_eq!(CONFIG.current_version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(CONFIG.repository, "austindelic/spotifast-spatial");
+        assert_eq!(CONFIG.mac_target, MacTarget::Arm64Only);
+        assert_eq!(CONFIG.prereleases, Prereleases::WhenRunningPrerelease);
     }
 
     #[test]
-    fn updates_require_the_release_signing_key() {
+    fn preview_updates_do_not_trust_the_upstream_signing_key() {
         assert!(
-            CONFIG.publisher_key.is_some(),
-            "updates must require a publisher signature"
+            CONFIG.publisher_key.is_none(),
+            "this fork does not publish signed manifests"
         );
         CONFIG.validate().unwrap();
     }
 
-    /// An AppImage may replace itself only because the release workflow
-    /// builds the AppImages into the signed checksums.txt;
-    /// packaging/test-release-names.py checks that side.
+    /// This fork only publishes macOS artifacts.
     #[test]
-    fn appimages_update_themselves() {
-        const { assert!(CONFIG.appimage) };
+    fn appimage_updates_are_disabled() {
+        const { assert!(!CONFIG.appimage) };
     }
 }

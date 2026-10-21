@@ -1,12 +1,12 @@
 [package]
 name = "spotifast"
 default-run = "spotifast"
-version = "0.14.1"
+version = "0.14.1-spatial.1"
 edition = "2024"
 rust-version = "1.98"
 license = "MIT"
 description = "A native Spotify client"
-repository = "https://github.com/crmne/spotifast"
+repository = "https://github.com/austindelic/spotifast-spatial"
 keywords = ["spotify", "music", "egui", "librespot", "player"]
 categories = ["multimedia::audio"]
 
@@ -70,7 +70,7 @@ fastframe-file = { git = "https://github.com/crmne/fastframe", tag = "v0.14.0" }
 # display, lock, the internet's reach and cost, sleep and wake, and the App
 # Nap activity local playback holds on macOS.
 fastframe-power = { git = "https://github.com/crmne/fastframe", tag = "v0.14.0" }
-# The audio device stream, and the only audio output on every platform: it
+# The standard audio device stream (native AVFoundation on supported Macs): it
 # pauses, so a paused player costs no CPU (#636), follows the default output
 # and reopens after a failure. On Linux it plays through cpal's default host:
 # PipeWire, then PulseAudio, then ALSA. librespot's own backends (rodio,
@@ -197,9 +197,17 @@ objc2 = { version = "0.6", features = ["exception"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAccessibility", "NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication", "NSWindow", "NSView", "NSScreen", "NSColor", "NSImage", "NSImageView", "NSButton", "NSControl", "NSTrackingArea", "NSVisualEffectView", "NSTextField", "NSBezierPath", "NSFont", "NSAnimation", "NSAnimationContext", "NSWorkspace"] }
 # NSAppleEventManager and NSAppleEventDescriptor carry the Spotify links
 # macOS hands an app registered for the scheme (src/mac_links.rs), and
-# NSRunLoop has the delayed perform that minimizes the window
-# (src/window.rs).
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString", "NSThread", "NSDictionary", "NSAttributedString", "NSData"] }
+# NSRunLoop has the delayed perform the title bar uses (src/window.rs).
+# Notifications report native audio route flushes to the audio worker.
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString", "NSThread", "NSDictionary", "NSAttributedString", "NSData", "NSProcessInfo", "NSNotification", "NSOperation", "NSValue", "block2"] }
+# AVFoundation permits macOS/AirPods stereo spatialization through the system
+# controls. Core Media owns the PCM buffers; Core Audio resolves output UIDs.
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "AVSampleBufferAudioRenderer", "AVSampleBufferRenderSynchronizer", "AVQueuedSampleBufferRendering", "AVAudioProcessingSettings", "objc2-core-media"] }
+objc2-core-media = { version = "0.3", default-features = false, features = ["std", "CMBlockBuffer", "CMFormatDescription", "CMSampleBuffer", "CMTime", "objc2-core-audio-types"] }
+objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware"] }
+objc2-core-audio-types = { version = "0.3", default-features = false, features = ["std", "CoreAudioBaseTypes"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFBase", "CFString"] }
+block2 = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store = { version = "1.1", default-features = false }

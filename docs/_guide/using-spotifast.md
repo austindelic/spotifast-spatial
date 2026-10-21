@@ -5,6 +5,38 @@ description: Play music, arrange playlists, find lyrics, and make Spotifast your
 nav_order: 3
 ---
 
+## AirPods spatialization on macOS
+
+On an Apple-silicon Mac with macOS 12.3 or later, local playback permits Apple's
+stereo spatialization. Connect compatible AirPods, play a song on this computer,
+and use the AirPods controls in the macOS menu bar or Control Center to choose
+**Off**, **Fixed**, or **Head Tracked**. There is no additional Spotifast setting.
+
+Spotify still supplies stereo audio. This applies Apple's spatialization to
+that stereo signal; it does not add Dolby Atmos or lossless streams. The EQ
+continues to shape the sound, and the visualizers remain independent of volume.
+Playback on a remote Spotify Connect device uses that device's capabilities.
+
+Intel Macs and older macOS versions use the standard audio output. If Apple's
+output cannot initialize, Spotifast logs the reason and uses the standard
+output, which does not enable these spatialization controls. Availability of
+the controls depends on the selected output and macOS.
+
+Native playback fills its audio buffer before starting the playback clock.
+It fills this startup buffer immediately, waiting only for macOS readiness.
+It targets 250 ms of queued audio during playback, with up to 500 ms plus one
+stereo frame for startup and renderer replacement. If native startup cannot become ready
+within two seconds, Spotifast logs the reason and uses the standard output.
+Queued audio can delay volume changes and fades; pausing still stops audio work.
+When using the default output, macOS handles device changes without Spotifast
+replacing the renderer or restarting its spatialization session.
+Spatial-mode switches refill audio at the current playback position without
+stopping the clock. For two seconds after a switch, the queue can grow to the
+same bounded startup size using decoded audio, then returns to its 250 ms target.
+On macOS, `cargo run` packages and launches the regular client as a development
+`.app` under the build directory. A real bundle lets macOS associate its per-app
+audio controls with Spotifast. Cargo tests still run directly.
+
 ## Middle-click autoscroll
 
 On Windows, since 0.8.0, and on Linux once turned on, middle-click anywhere

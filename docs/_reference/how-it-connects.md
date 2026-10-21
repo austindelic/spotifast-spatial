@@ -4,6 +4,16 @@ description: Independent Spotify grants, what is stored, and how API traffic is 
 nav_order: 1
 ---
 
+## Spatial preview fork updates
+
+Spatial preview builds check releases in
+[`austindelic/spotifast-spatial`](https://github.com/austindelic/spotifast-spatial)
+instead of the upstream repository. While running a preview, it can offer newer
+previews from that fork. Its macOS downloads are Apple Silicon DMGs named
+`spotifast-vVERSION-macos-arm64.dmg`, verified against the fork's `checksums.txt`.
+The existing proxy, checksum validation and installation confirmation still
+apply. The preview retains the Spotifast bundle identity and settings.
+
 ## Independent grants, once each
 
 Spotifast uses separate credentials for Web API access, a personal app, and

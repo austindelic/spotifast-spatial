@@ -1,3 +1,29 @@
+# Spotifast Spatial (experimental fork)
+
+This is Austin Delic's fork of [Spotifast by crmne](https://github.com/crmne/spotifast),
+adding native macOS spatial audio and head tracking for compatible AirPods.
+
+The development branch includes upstream Spotifast 0.14.1. The downloadable
+preview below is based on 0.12.0.
+
+**[Download the Apple Silicon preview](https://github.com/austindelic/spotifast-spatial/releases/tag/v0.12.0-spatial.1)**
+Requires an Apple Silicon Mac, macOS 12.3 or newer, compatible headphones and
+Spotify Premium for local playback. Start playback on this computer, then use
+the native macOS spatial audio controls. This spatializes Spotify's stereo
+audio; it does not add Dolby Atmos tracks.
+
+The preview is ad-hoc signed and is not notarized. If macOS blocks it, follow
+[Apple's instructions for opening an app from an unidentified developer](https://support.apple.com/en-us/102445).
+It keeps the `Spotifast.app` name and existing Spotifast settings, so quit
+Spotifast before replacing it. Preview updates come from this fork.
+
+Please report fork-specific problems in [this repository's issues](https://github.com/austindelic/spotifast-spatial/issues).
+The spatial audio addition is specific to macOS. The original project's
+documentation follows below; its Homebrew
+command and download page install upstream Spotifast.
+
+---
+
 <p align="center">
   <img src="docs/assets/images/logo.svg" alt="Spotifast logo" width="88" height="88">
 </p>
@@ -132,6 +158,13 @@ cargo run --features demo -- --demo
 Translations live in `assets/i18n/`; see
 [Translating Spotifast](docs/_reference/translating.md). Release packaging
 is described in [PACKAGING.md](PACKAGING.md).
+
+On Apple-silicon Macs running macOS 12.3 or later, local playback uses Apple's
+audio renderer and permits stereo spatialization with compatible AirPods.
+Choose Off, Fixed, or Head Tracked in the macOS AirPods controls. This path is
+also enabled when running `cargo run`; no separate diagnostic app is needed.
+Native output primes a bounded buffer before playback and falls back to the
+standard output if it cannot become ready within two seconds.
 
 ## More native apps
 

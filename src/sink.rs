@@ -6,20 +6,18 @@
 //! (see `start`). Spotifast can then remain available as a Connect remote
 //! until an output appears.
 //!
-//! fastframe-audio owns the device stream: it pauses with playback, so a
-//! paused player costs no audio work (#636), follows the system's default
-//! output and reopens after a failure. rodio's mixer and queue fill it. It
-//! is the only output on every platform; on Linux it plays through cpal's
-//! default host, PipeWire, then PulseAudio, then ALSA.
+//! AVFoundation owns output on supported Apple-silicon Macs, permitting native
+//! AirPods stereo spatialization. Elsewhere fastframe-audio owns the stream.
+//! Both pause with playback so a paused player costs no audio work (#636),
+//! follow the default output and recover after a failure. rodio fills them.
+//! On Linux, cpal uses PipeWire, then PulseAudio, then ALSA.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering, fence};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use fastframe_audio::{
-    Buffer, BufferSize, DeviceId, DeviceInfo, Maintained, OutputOptions, Reason, Render,
-};
+use fastframe_audio::{Buffer, BufferSize, DeviceId, DeviceInfo, OutputOptions, Render};
 use librespot_playback::audio_backend::{Sink, SinkError, SinkResult};
 use librespot_playback::convert::Converter;
 use librespot_playback::decoder::AudioPacket;
@@ -29,6 +27,12 @@ use librespot_playback::{NUM_CHANNELS, SAMPLE_RATE};
 use rodio::Source;
 
 use crate::resample::Resampler;
+
+#[cfg(target_os = "macos")]
+mod macos;
+mod output;
+
+use output::DeviceOutput;
 
 /// Told about output failures, with a message fit for the interface.
 pub type ErrorHook = Arc<dyn Fn(String) + Send + Sync>;
@@ -109,6 +113,8 @@ pub struct AudioControl {
 struct AudioTarget {
     sink: Weak<rodio::Sink>,
     envelope: Option<Arc<Envelope>>,
+    #[cfg(target_os = "macos")]
+    reset: Option<macos::Reset>,
 }
 
 impl AudioControl {
@@ -132,6 +138,8 @@ impl AudioControl {
                 if let Some(sink) = target.sink.upgrade() {
                     sink.stop();
                 }
+                drop(target);
+                self.flush_device(false);
                 self.reset_output.store(true, Ordering::SeqCst);
                 self.reset_processing.store(true, Ordering::SeqCst);
                 // Previous can rewind the current track after interrupting
@@ -162,6 +170,9 @@ impl AudioControl {
             while !envelope.silent() && Instant::now() < deadline {
                 thread::sleep(Duration::from_millis(1));
             }
+            // The native renderer holds a small amount of audio beyond rodio.
+            // Let the fade finish there before flushing the old position.
+            self.flush_device(true);
             // Unlike `clear`, this does not wait for every queued source.
             // The replacement gets a fresh rodio sink on its first write.
             sink.stop();
@@ -198,6 +209,23 @@ impl AudioControl {
         let mut target = self.target.lock().unwrap_or_else(PoisonError::into_inner);
         target.sink = Arc::downgrade(sink);
         target.envelope = Some(envelope);
+    }
+
+    fn flush_device(&self, drain: bool) {
+        #[cfg(target_os = "macos")]
+        {
+            let reset = self
+                .target
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .reset
+                .clone();
+            if let Some(reset) = reset {
+                reset.flush(drain);
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = drain;
     }
 }
 
@@ -468,7 +496,7 @@ pub struct RodioSink {
 }
 
 struct Output {
-    device: fastframe_audio::Output<MixerRender>,
+    device: DeviceOutput,
     volume: Arc<AtomicU32>,
     /// Where a mixer made for a new stream format waits for this thread.
     made: MixerSlot,
@@ -533,6 +561,14 @@ impl Output {
         let sink = Arc::new(rodio::Sink::connect_new(&mixer));
         let envelope = Envelope::open(sample_rate, INTERRUPT_FADE);
         control.register(&sink, Arc::clone(&envelope));
+        #[cfg(target_os = "macos")]
+        {
+            control
+                .target
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .reset = self.device.reset_handle();
+        }
         self.resampler = converter_to(sample_rate);
         self.mixer = mixer;
         self.sink = sink;
@@ -541,6 +577,7 @@ impl Output {
         // The first sound has silence to come up from instead of a hard edge.
         self.transport = Envelope::closed(sample_rate, TRANSPORT_FADE);
         self.queued = Queued::new();
+        self.device.set_queue(Arc::clone(&self.queued));
         self.fed = false;
         self.last_write = None;
     }
@@ -551,33 +588,8 @@ impl Output {
     /// set again.
     fn run(&mut self, control: &AudioControl) -> Result<bool, OpenError> {
         self.device.resume();
-        for error in self.device.take_errors() {
-            if error.is_fatal() {
-                log::error!("audio stream error: {error}");
-            } else {
-                log::warn!("audio stream error: {error}");
-            }
-        }
-        match self.device.maintain() {
-            Maintained::Reopened {
-                device,
-                sample_rate,
-                reason,
-                ..
-            } => match reason {
-                // A stream can stop asking for sound without reporting an
-                // error, and then nothing would ever make room (#731).
-                Reason::Stalled => log::warn!(
-                    "the audio output stopped playing; opened it again: {device} at {sample_rate} Hz"
-                ),
-                Reason::Failed | Reason::DefaultChanged | Reason::Resumed => {
-                    log::info!("audio output reopened ({reason:?}): {device} at {sample_rate} Hz")
-                }
-            },
-            Maintained::Failed(error) => return Err(error.into()),
-            Maintained::Unchanged | Maintained::Released => {}
-        }
-        let count = self.device.clock().underruns();
+        self.device.maintain()?;
+        let count = self.device.underruns();
         if let Some(new) = self.underruns.take_new(count, Instant::now()) {
             log::warn!("audio device underran {new} times; {count} since the output opened");
         }
@@ -776,6 +788,7 @@ impl Sink for RodioSink {
         if let Some(output) = &mut self.output {
             output.transport.fade_in();
             output.sink.play();
+            output.device.resume();
         }
         Ok(())
     }
@@ -789,13 +802,17 @@ impl Sink for RodioSink {
             // been decoded since.
             output.transport.fade_out_over(output.queued.frames());
             let deadline = Instant::now() + DRAIN_TIMEOUT;
-            while !output.sink.empty() && !output.failed() && Instant::now() < deadline {
+            while !output.sink.empty()
+                && output.queued.frames() > 0
+                && !output.failed()
+                && Instant::now() < deadline
+            {
                 thread::sleep(Duration::from_millis(10));
             }
             output.sink.pause();
             // With the queue played out, the device can stop asking for
             // sound until Play: a paused app costs no audio work (#636).
-            output.device.pause();
+            output.device.pause(deadline);
             output.transport.close();
             output.fed = false;
             output.last_write = None;
@@ -822,12 +839,14 @@ impl Sink for RodioSink {
         if self.control.take_reset()
             && let Some(output) = &mut self.output
         {
+            output.device.flush();
             let sink = Arc::new(rodio::Sink::connect_new(&output.mixer));
             let envelope = Envelope::rising(output.sample_rate, INTERRUPT_FADE);
             self.control.register(&sink, Arc::clone(&envelope));
             output.sink = sink;
             output.envelope = envelope;
             output.queued = Queued::new();
+            output.device.set_queue(Arc::clone(&output.queued));
             output.resampler =
                 Resampler::new(SAMPLE_RATE, output.sample_rate, NUM_CHANNELS as usize);
             output.fed = false;
@@ -840,6 +859,10 @@ impl Sink for RodioSink {
                 "the audio output is not open".into(),
             ));
         };
+        // A first packet can create the native output without a preceding
+        // start call. It opens paused so setup never consumes mixer samples.
+        output.device.resume();
+        output.sink.play();
         let samples = match &mut output.resampler {
             Some(resampler) => resampler.process(&samples),
             None => samples,
@@ -987,6 +1010,9 @@ enum OpenError {
     NoDevice,
     #[error("{0}")]
     Device(fastframe_audio::OpenError),
+    #[cfg(target_os = "macos")]
+    #[error("{0}")]
+    Native(String),
 }
 
 impl From<fastframe_audio::OpenError> for OpenError {
@@ -1042,7 +1068,7 @@ fn open_output(
 ) -> Result<Output, OpenError> {
     let made = MixerSlot::default();
     let volume = Arc::new(AtomicU32::new(0.0f32.to_bits()));
-    let render = MixerRender {
+    let render = || MixerRender {
         volume: Arc::clone(&volume),
         ramp: VolumeRamp::default(),
         source: None,
@@ -1050,16 +1076,15 @@ fn open_output(
         made: Arc::clone(&made),
     };
     let saved = Saved::now(preferred);
-    let device = fastframe_audio::Output::open(output_options(saved.device(), buffer_ms), render)?;
+    let device = DeviceOutput::open(&saved, buffer_ms, render)?;
     log::info!(
         "audio output: {} through {}",
         device.device_name(),
-        fastframe_audio::host()
+        device.host()
     );
-    // A device found by an old saved name, and not the default standing in
-    // for it, has its id saved from now on.
+    // Save a legacy name as an ID only when that device actually opened.
     let saved_as = match saved {
-        Saved::Named { name, id } if *device.device_id() == id => Some((name, id)),
+        Saved::Named { name, id } if device.device_id() == id => Some((name, id)),
         _ => None,
     };
     // The open configured the renderer, which made the mixer.
@@ -1401,6 +1426,39 @@ mod tests {
         assert!(sink.stop().is_ok());
         sink.write(packet(), &mut converter).unwrap();
         assert_eq!(running(&sink), Some(true), "and so does sound");
+        assert!(sink.stop().is_ok());
+    }
+
+    #[test]
+    fn a_first_packet_without_start_runs_the_device_and_drains() {
+        let mut sink = RodioSink::new(
+            None,
+            Arc::new(|_| {}),
+            Box::new(librespot_playback::mixer::NoOpVolume),
+            DEFAULT_BUFFER_MS,
+            AudioControl::new(DEFAULT_BUFFER_MS),
+        );
+        let packet = AudioPacket::Samples(vec![0.0; 441 * NUM_CHANNELS as usize]);
+        let result = sink.write(packet, &mut Converter::new(None));
+        let Some(output) = &sink.output else {
+            assert!(result.is_err(), "a machine without an output reports it");
+            return;
+        };
+        result.unwrap();
+        assert!(!output.device.is_paused());
+        assert!(!output.sink.is_paused());
+        let deadline = Instant::now() + DRAIN_TIMEOUT;
+        while output.queued.frames() > 0 && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        // The native output stops pulling at the last real frame. rodio
+        // retires that final source on a later read, so its source count
+        // need not be zero even though every PCM frame was consumed.
+        assert_eq!(
+            output.queued.frames(),
+            0,
+            "the first silent packet must actually play"
+        );
         assert!(sink.stop().is_ok());
     }
 
