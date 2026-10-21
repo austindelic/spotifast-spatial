@@ -1,12 +1,12 @@
 [package]
 name = "spotifast"
 default-run = "spotifast"
-version = "0.12.0"
+version = "0.12.0-spatial.1"
 edition = "2024"
 rust-version = "1.98"
 license = "MIT"
 description = "A native Spotify client"
-repository = "https://github.com/crmne/spotifast"
+repository = "https://github.com/austindelic/spotifast-spatial"
 keywords = ["spotify", "music", "egui", "librespot", "player"]
 categories = ["multimedia::audio"]
 

@@ -1,3 +1,26 @@
+# Spotifast Spatial (experimental fork)
+
+This is Austin Delic's fork of [Spotifast by crmne](https://github.com/crmne/spotifast),
+adding native macOS spatial audio and head tracking for compatible AirPods.
+
+**[Download the Apple Silicon preview](https://github.com/austindelic/spotifast-spatial/releases/tag/v0.12.0-spatial.1)**
+Requires an Apple Silicon Mac, macOS 12.3 or newer, compatible headphones and
+Spotify Premium for local playback. Start playback on this computer, then use
+the native macOS spatial audio controls. This spatializes Spotify's stereo
+audio; it does not add Dolby Atmos tracks.
+
+The preview is ad-hoc signed and is not notarized. If macOS blocks it, follow
+[Apple's instructions for opening an app from an unidentified developer](https://support.apple.com/en-us/102445).
+It keeps the `Spotifast.app` name and existing Spotifast settings, so quit
+Spotifast before replacing it. Preview updates come from this fork.
+
+Please report fork-specific problems in [this repository's issues](https://github.com/austindelic/spotifast-spatial/issues).
+The broader per-device EQ and cross-platform spatial audio proposal is not
+included. The original project's documentation follows below; its Homebrew
+command and download page install upstream Spotifast.
+
+---
+
 <p align="center">
   <img src="docs/assets/images/logo.svg" alt="Spotifast logo" width="88" height="88">
 </p>

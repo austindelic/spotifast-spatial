@@ -10,7 +10,7 @@ pub use fastframe_update::{
     CHECK_INTERVAL, DownloadState, Installation, Kind, Prepared, Release, Source, Unsupported,
     Updater,
 };
-use fastframe_update::{MacConfig, ReqwestTransport, UpdateConfig};
+use fastframe_update::{MacConfig, MacTarget, Prereleases, ReqwestTransport, UpdateConfig};
 
 pub const CONFIG: UpdateConfig = UpdateConfig {
     macos: MacConfig {
@@ -22,8 +22,11 @@ pub const CONFIG: UpdateConfig = UpdateConfig {
     // signed. Only a version shipped after the first signed release may
     // carry the key: from then on an unsigned release is refused.
     publisher_key: None,
+    // Preview builds stay on this fork and use its Apple Silicon artifacts.
+    prereleases: Prereleases::WhenRunningPrerelease,
+    mac_target: MacTarget::Arm64Only,
     ..UpdateConfig::new(
-        "crmne/spotifast",
+        "austindelic/spotifast-spatial",
         "Spotifast",
         "spotifast",
         env!("CARGO_PKG_VERSION"),
@@ -44,5 +47,8 @@ mod tests {
     fn update_config_is_valid() {
         CONFIG.validate().unwrap();
         assert_eq!(CONFIG.current_version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(CONFIG.repository, "austindelic/spotifast-spatial");
+        assert_eq!(CONFIG.mac_target, MacTarget::Arm64Only);
+        assert_eq!(CONFIG.prereleases, Prereleases::WhenRunningPrerelease);
     }
 }
