@@ -1,4 +1,7 @@
 //! Owned Core Media PCM. No sample buffer borrows the mixer's scratch memory.
+
+use std::ptr::{NonNull, null, null_mut};
+
 use librespot_playback::SAMPLE_RATE;
 use objc2_core_audio_types::{
     AudioStreamBasicDescription, kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked,
@@ -9,9 +12,8 @@ use objc2_core_media::{
     CMAudioFormatDescriptionCreate, CMBlockBuffer, CMFormatDescription, CMSampleBuffer,
     CMSampleTimingInfo, CMTime, kCMTimeInvalid,
 };
-use std::ptr::{NonNull, null, null_mut};
-const CHANNELS: usize = 2;
-type Result<T> = std::result::Result<T, String>;
+
+use super::{CHANNELS, Result};
 
 fn status(code: i32, operation: &str) -> Result<()> {
     if code == 0 {
@@ -26,9 +28,9 @@ pub(super) fn format() -> Result<CFRetained<CMFormatDescription>> {
         mSampleRate: f64::from(SAMPLE_RATE),
         mFormatID: kAudioFormatLinearPCM,
         mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
-        mBytesPerPacket: 8,
+        mBytesPerPacket: (CHANNELS * size_of::<f32>()) as u32,
         mFramesPerPacket: 1,
-        mBytesPerFrame: 8,
+        mBytesPerFrame: (CHANNELS * size_of::<f32>()) as u32,
         mChannelsPerFrame: CHANNELS as u32,
         mBitsPerChannel: 32,
         mReserved: 0,
@@ -128,4 +130,65 @@ pub(super) fn sample_buffer(
     let raw = NonNull::new(raw).ok_or("No sample buffer returned")?;
     // SAFETY: Create returned an owned reference (+1).
     Ok(unsafe { CFRetained::from_raw(raw) })
+}
+
+pub(super) fn frame_time(frame: u64) -> CMTime {
+    // SAFETY: Fixed positive timescale; frame counts fit within i64 in practice.
+    unsafe { CMTime::new(frame as i64, SAMPLE_RATE as i32) }
+}
+
+pub(super) fn frames(time: CMTime) -> Result<u64> {
+    // SAFETY: Value returned by Core Media or a documented flush notification.
+    let seconds = unsafe { time.seconds() };
+    if !seconds.is_finite() || seconds < 0.0 {
+        return Err("Invalid native audio clock".into());
+    }
+    Ok((seconds * f64::from(SAMPLE_RATE)).floor() as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::queue::BLOCK;
+    use super::*;
+
+    #[test]
+    fn owned_pcm_has_stereo_frame_sizes_and_contiguous_timestamps() {
+        let format = format().unwrap();
+        assert!(sample_buffer(&format, 0, &[]).is_err());
+        assert!(sample_buffer(&format, 0, &[1.0]).is_err());
+        let buffer = sample_buffer(&format, BLOCK, &vec![0.0; BLOCK as usize * 2]).unwrap();
+        // SAFETY: Owned buffer created above; getters do not mutate it.
+        unsafe {
+            assert_eq!(buffer.num_samples(), BLOCK as isize);
+            assert_eq!(buffer.total_sample_size(), BLOCK as usize * 8);
+            assert_eq!({ buffer.presentation_time_stamp().value }, BLOCK as i64);
+            assert_eq!(
+                buffer.presentation_time_stamp().timescale,
+                SAMPLE_RATE as i32
+            );
+        }
+    }
+
+    #[test]
+    fn enqueued_pcm_does_not_borrow_reused_mixer_memory() {
+        let format = format().unwrap();
+        let mut scratch = vec![0.25_f32, -0.5, 0.75, -1.0];
+        let buffer = sample_buffer(&format, 0, &scratch).unwrap();
+        scratch.fill(0.0);
+        let mut copied = [0.0_f32; 4];
+        // SAFETY: The sample buffer owns 16 initialized bytes. The destination
+        // is exactly that size, and its memory remains alive through the copy.
+        unsafe {
+            let block = buffer.data_buffer().unwrap();
+            assert_eq!(
+                block.copy_data_bytes(
+                    0,
+                    size_of_val(&copied),
+                    NonNull::new(copied.as_mut_ptr().cast()).unwrap()
+                ),
+                0
+            );
+        }
+        assert_eq!(copied, [0.25, -0.5, 0.75, -1.0]);
+    }
 }

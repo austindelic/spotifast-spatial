@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use fastframe_audio::{Buffer, BufferSize, Maintained, OutputOptions, Reason, Render};
+use fastframe_audio::{Buffer, BufferSize, OutputOptions, Render};
 use librespot_playback::audio_backend::{Sink, SinkError, SinkResult};
 use librespot_playback::convert::Converter;
 use librespot_playback::decoder::AudioPacket;
@@ -29,6 +29,9 @@ use crate::resample::Resampler;
 
 #[cfg(target_os = "macos")]
 mod macos;
+mod output;
+
+use output::DeviceOutput;
 
 /// The backend name Settings uses for this sink.
 pub const NAME: &str = "rodio";
@@ -554,118 +557,6 @@ impl Output {
     }
 }
 
-/// Only the device transport differs. The mixer, processing and controls stay
-/// shared, including for settings which still name the backend "rodio".
-enum DeviceOutput {
-    Standard(Box<fastframe_audio::Output<MixerRender>>),
-    #[cfg(target_os = "macos")]
-    Apple(macos::Output),
-}
-
-impl DeviceOutput {
-    fn set_queue(&self, queued: Arc<Queued>) {
-        #[cfg(target_os = "macos")]
-        if let Self::Apple(device) = self {
-            device.set_queue(queued);
-        }
-        #[cfg(not(target_os = "macos"))]
-        let _ = queued;
-    }
-
-    fn resume(&mut self) {
-        match self {
-            Self::Standard(device) => device.resume(),
-            #[cfg(target_os = "macos")]
-            Self::Apple(device) => device.resume(),
-        }
-    }
-
-    fn pause(&mut self, deadline: Instant) {
-        match self {
-            Self::Standard(device) => device.pause(),
-            #[cfg(target_os = "macos")]
-            Self::Apple(device) => device.pause(deadline),
-        }
-        #[cfg(not(target_os = "macos"))]
-        let _ = deadline;
-    }
-
-    fn flush(&mut self) {
-        #[cfg(target_os = "macos")]
-        if let Self::Apple(device) = self {
-            device.reset_handle().flush(false);
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    fn reset_handle(&self) -> Option<macos::Reset> {
-        match self {
-            Self::Standard(_) => None,
-            Self::Apple(device) => Some(device.reset_handle()),
-        }
-    }
-
-    fn failed(&self) -> bool {
-        match self {
-            Self::Standard(device) => device.failed(),
-            #[cfg(target_os = "macos")]
-            Self::Apple(device) => device.failed(),
-        }
-    }
-
-    fn device_name(&self) -> String {
-        match self {
-            Self::Standard(device) => device.device_name().to_string(),
-            #[cfg(target_os = "macos")]
-            Self::Apple(device) => device.device_name().to_string(),
-        }
-    }
-
-    fn maintain(&mut self) -> Result<(), OpenError> {
-        let device = match self {
-            Self::Standard(device) => device,
-            #[cfg(target_os = "macos")]
-            Self::Apple(device) => return device.maintain().map_err(OpenError::Native),
-        };
-        for error in device.take_errors() {
-            if error.is_fatal() {
-                log::error!("audio stream error: {error}");
-            } else {
-                log::warn!("audio stream error: {error}");
-            }
-        }
-        match device.maintain() {
-            Maintained::Reopened {
-                device,
-                sample_rate,
-                reason,
-                ..
-            } => match reason {
-                // A stream can stop asking for sound without reporting an
-                // error, and then nothing would ever make room (#731).
-                Reason::Stalled => log::warn!(
-                    "the audio output stopped playing; opened it again: {device} at {sample_rate} Hz"
-                ),
-                Reason::Failed | Reason::DefaultChanged | Reason::Resumed => {
-                    log::info!("audio output reopened ({reason:?}): {device} at {sample_rate} Hz")
-                }
-            },
-            Maintained::Failed(error) => return Err(error.into()),
-            Maintained::Unchanged | Maintained::Released => {}
-        }
-        Ok(())
-    }
-
-    #[cfg(test)]
-    fn is_paused(&self) -> bool {
-        match self {
-            Self::Standard(device) => device.is_paused(),
-            #[cfg(target_os = "macos")]
-            Self::Apple(device) => device.is_paused(),
-        }
-    }
-}
-
 /// The converter from Spotify's rate to `sample_rate`, when they differ.
 fn converter_to(sample_rate: u32) -> Option<Resampler> {
     let resampler = Resampler::new(SAMPLE_RATE, sample_rate, NUM_CHANNELS as usize);
@@ -1049,27 +940,7 @@ fn open_output(
         format: (0, 0),
         made: Arc::clone(&made),
     };
-    #[cfg(target_os = "macos")]
-    let native = if macos::supported() {
-        match macos::Output::open(preferred, render()) {
-            Ok(device) => Some(DeviceOutput::Apple(device)),
-            Err(error) => {
-                log::warn!("native audio output unavailable; using standard output: {error}");
-                None
-            }
-        }
-    } else {
-        None
-    };
-    #[cfg(not(target_os = "macos"))]
-    let native: Option<DeviceOutput> = None;
-    let device = match native {
-        Some(device) => device,
-        None => DeviceOutput::Standard(Box::new(fastframe_audio::Output::open(
-            output_options(preferred, buffer_ms),
-            render(),
-        )?)),
-    };
+    let device = DeviceOutput::open(preferred, buffer_ms, render)?;
     log::info!("audio output: {}", device.device_name());
     // The open configured the renderer, which made the mixer.
     let (mixer, sample_rate) = made

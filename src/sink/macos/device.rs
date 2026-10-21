@@ -14,13 +14,21 @@ use objc2_core_audio::{
 use objc2_core_foundation::{CFRetained, CFString};
 use objc2_foundation::NSString;
 
-type Result<T> = std::result::Result<T, String>;
+use super::Result;
 
 pub(super) struct Route {
     pub id: u32,
     pub name: String,
     /// None follows the system default instead of pinning its current UID.
     pub uid: Option<Retained<NSString>>,
+}
+
+impl Route {
+    /// Default output changes are followed by AVFoundation without replacing
+    /// the renderer and losing its spatialization session.
+    pub(super) fn requires_reopen(&self, next: &Self) -> bool {
+        self.uid != next.uid
+    }
 }
 
 pub(super) fn resolve(preferred: Option<&str>) -> Result<Route> {
@@ -143,4 +151,33 @@ fn string(object: u32, selector: u32) -> Result<String> {
     // SAFETY: The property transfers a retained CFString reference to us.
     let string = unsafe { CFRetained::from_raw(raw) };
     Ok(string.to_string())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_device_changes_keep_the_renderer_but_named_device_changes_reopen() {
+        use objc2_foundation::NSString;
+        let speakers = Route {
+            id: 1,
+            name: "speakers".into(),
+            uid: None,
+        };
+        let airpods = Route {
+            id: 2,
+            name: "AirPods".into(),
+            uid: None,
+        };
+        let named = Route {
+            id: 2,
+            name: "AirPods".into(),
+            uid: Some(NSString::from_str("airpods")),
+        };
+        assert!(!speakers.requires_reopen(&airpods));
+        assert!(!airpods.requires_reopen(&speakers));
+        assert!(airpods.requires_reopen(&named));
+        assert!(named.requires_reopen(&speakers));
+        assert!(!named.requires_reopen(&named));
+    }
 }
