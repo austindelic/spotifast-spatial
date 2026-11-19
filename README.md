@@ -12,6 +12,18 @@ Spotify Premium for local playback. Start playback on this computer, then use
 the native macOS spatial audio controls. This spatializes Spotify's stereo
 audio; it does not add Dolby Atmos tracks.
 
+Or install it with Homebrew:
+
+```sh
+brew tap austindelic/tap
+brew trust austindelic/tap
+brew install --cask spotifast-spatial
+```
+
+It replaces the upstream `spotifast` cask, so run `brew uninstall --cask spotifast`
+first if you have it. The app updates itself, so `brew upgrade` skips it unless
+you pass `--greedy`.
+
 The preview is ad-hoc signed and is not notarized. If macOS blocks it, follow
 [Apple's instructions for opening an app from an unidentified developer](https://support.apple.com/en-us/102445).
 It keeps the `Spotifast.app` name and existing Spotifast settings, so quit
